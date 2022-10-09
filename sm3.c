@@ -1,68 +1,6 @@
+#include <string.h>
 #include "sm3.h"
 #include "byteorder.h"
-#include <string.h>
-#define SM3_HMAC_SIZE 32
-#define IPAD 0x36
-#define OPAD 0x5C
-
-void sm3_hmac_init(sm3_hmac_ctx_t *ctx, const unsigned char *key, size_t key_len)
-{
-	int i;
-
-	if (key_len <= SM3_BLOCK_SIZE)
-	{
-		memcpy(ctx->key, key, key_len);
-		memset(ctx->key + key_len, 0, SM3_BLOCK_SIZE - key_len);
-	}
-	else
-	{
-		sm3_init(&ctx->sm3_ctx);
-		sm3_update(&ctx->sm3_ctx, key, key_len);
-		sm3_final(&ctx->sm3_ctx, ctx->key);
-		memset(ctx->key + SM3_DIGEST_LENGTH, 0,
-			   SM3_BLOCK_SIZE - SM3_DIGEST_LENGTH);
-	}
-	for (i = 0; i < SM3_BLOCK_SIZE; i++)
-	{
-		ctx->key[i] ^= IPAD;
-	}
-
-	sm3_init(&ctx->sm3_ctx);
-	sm3_update(&ctx->sm3_ctx, ctx->key, SM3_BLOCK_SIZE);
-}
-
-void sm3_hmac_update(sm3_hmac_ctx_t *ctx,
-					 const unsigned char *data, size_t data_len)
-{
-	sm3_update(&ctx->sm3_ctx, data, data_len);
-}
-
-void sm3_hmac_final(sm3_hmac_ctx_t *ctx, unsigned char mac[SM3_HMAC_SIZE])
-{
-	int i;
-	for (i = 0; i < SM3_BLOCK_SIZE; i++)
-	{
-		ctx->key[i] ^= (IPAD ^ OPAD);
-	}
-
-	sm3_final(&ctx->sm3_ctx, mac);
-	sm3_init(&ctx->sm3_ctx);
-	sm3_update(&ctx->sm3_ctx, ctx->key, SM3_BLOCK_SIZE);
-	sm3_update(&ctx->sm3_ctx, mac, SM3_DIGEST_LENGTH);
-	sm3_final(&ctx->sm3_ctx, mac);
-}
-
-int sm3_hmac(const unsigned char *data, int data_len,
-			 const unsigned char *key, int key_len,
-			 unsigned char mac[SM3_HMAC_SIZE])
-{
-	sm3_hmac_ctx_t ctx;
-	sm3_hmac_init(&ctx, key, key_len);
-	sm3_hmac_update(&ctx, data, data_len);
-	sm3_hmac_final(&ctx, mac);
-	memset(&ctx, 0, sizeof(ctx));
-	return 0;
-}
 
 int sm3_init(sm3_ctx_t *ctx)
 {
@@ -162,7 +100,7 @@ int sm3_final(sm3_ctx_t *ctx, unsigned char *digest)
 #define GG0(x, y, z) ((x) ^ (y) ^ (z))
 #define GG1(x, y, z) (((x) & (y)) | ((~(x)) & (z)))
 
-void sm3_compress(uint32_t digest[8], const unsigned char block[64])
+int sm3_compress(uint32_t digest[8], const unsigned char block[64])
 {
 	int j;
 	uint32_t W[68], W1[64];
@@ -236,9 +174,10 @@ void sm3_compress(uint32_t digest[8], const unsigned char block[64])
 	digest[5] ^= F;
 	digest[6] ^= G;
 	digest[7] ^= H;
+	return 0;
 }
 
-void sm3(const unsigned char *msg, size_t msglen, unsigned char dgst[SM3_DIGEST_LENGTH])
+int sm3(const unsigned char *msg, size_t msglen, unsigned char dgst[SM3_DIGEST_LENGTH])
 {
 	sm3_ctx_t ctx;
 
@@ -247,71 +186,5 @@ void sm3(const unsigned char *msg, size_t msglen, unsigned char dgst[SM3_DIGEST_
 	sm3_final(&ctx, dgst);
 
 	memset(&ctx, 0, sizeof(sm3_ctx_t));
-}
-
-void main()
-{
-	/*
-	char *input = "616263";
-	unsigned int ilen = 3;
-	unsigned char *key_in = (unsigned char *)malloc(sizeof(unsigned char)*(strlen(input)/2));
-	StringToHex(input,key_in,&ilen);
-	unsigned char output[32];
-	int i;
-	sm3_ctx_t ctx;
-
-	printf("message:\n");
-	printf("%s\n",input);
-
-	sm3((unsigned char *)key_in, ilen, output);
-	printf("hash:\n   ");
-	for(i=0; i<32; i++)
-	{
-		printf("%02x",output[i]);
-		if (((i+1) % 4 ) == 0) printf(" ");
-	}
-	printf("\n");
-	*/
-
-	char *key = "1234567890";
-	unsigned char output[32];
-	char *clear = "123456";
-	unsigned int keyoutlen = 10;
-	unsigned int clearoutlen = 6;
-
-	printf("keylen:%d \n", keyoutlen);
-	printf("clearlen:%d \n", clearoutlen);
-	sm3_hmac(clear, clearoutlen, key, keyoutlen, output);
-	int ij = 0;
-	for (ij = 0; ij < 32; ij++)
-	{
-		printf("%02x", output[ij]);
-		if (((ij + 1) % 4) == 0)
-			printf(" ");
-	}
-
-	printf("\n");
-}
-
-int StringToHex(const char *str, unsigned char *out, unsigned int *outlen)
-{
-	const char *p = str;
-	char high = 0, low = 0;
-	int tmplen = strlen(p), cnt = 0;
-	tmplen = strlen(p);
-	while (cnt < (tmplen / 2))
-	{
-		high = ((*p > '9') && ((*p <= 'F') || (*p <= 'f'))) ? *p - 48 - 7 : *p - 48;
-		low = (*(++p) > '9' && ((*p <= 'F') || (*p <= 'f'))) ? *(p)-48 - 7 : *(p)-48;
-		out[cnt] = ((high & 0x0f) << 4 | (low & 0x0f));
-		p++;
-		cnt++;
-	}
-	if (tmplen % 2 != 0)
-		out[cnt] = ((*p > '9') && ((*p <= 'F') || (*p <= 'f'))) ? *p - 48 - 7 : *p - 48;
-
-	if (outlen != NULL)
-		*outlen = tmplen / 2 + tmplen % 2;
-
-	return tmplen / 2 + tmplen % 2;
+	return 0;
 }

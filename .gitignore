@@ -1,2 +1,4 @@
-/.vscode
-/sm3test.c
+*
+!*.h
+!*.c
+!.vscode
